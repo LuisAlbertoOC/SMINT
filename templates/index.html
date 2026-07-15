@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Clasificador de Números Escritos a Mano</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            background: #f4f4f4;
+            color: #222;
+        }
+
+        header {
+            background: #1f2937;
+            color: white;
+            padding: 24px;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+
+        header p {
+            margin-top: 8px;
+            color: #d1d5db;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 30px auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 14px;
+            padding: 24px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .card h2 {
+            margin-top: 0;
+            color: #111827;
+        }
+
+        .canvas-container {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        canvas {
+            background: white;
+            border: 3px solid #111827;
+            border-radius: 12px;
+            touch-action: none;
+            cursor: crosshair;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        button {
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-primary {
+            background: #2563eb;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #111827;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+
+        .btn-secondary:hover {
+            background: #d1d5db;
+        }
+
+        .resultado-principal {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .numero-predicho {
+            font-size: 92px;
+            font-weight: bold;
+            color: #2563eb;
+            line-height: 1;
+        }
+
+        .mensaje {
+            text-align: center;
+            color: #6b7280;
+            margin-top: 12px;
+        }
+
+        .error {
+            color: #dc2626;
+            font-weight: bold;
+        }
+
+        .probabilidad-item {
+            margin-bottom: 10px;
+        }
+
+        .probabilidad-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+            font-size: 14px;
+        }
+
+        .barra-fondo {
+            width: 100%;
+            height: 12px;
+            background: #e5e7eb;
+            border-radius: 20px;
+            overflow: hidden;
+        }
+
+        .barra {
+            height: 100%;
+            background: #2563eb;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .nota {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #4b5563;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 850px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+
+            canvas {
+                width: 280px;
+                height: 280px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Clasificador de Números Escritos a Mano</h1>
+        <p>Modelo ANN entrenado con MNIST, entrada 16x16 en escala de grises y salida Softmax de 10 clases.</p>
+    </header>
+
+    <main>
+        <section class="card">
+            <h2>Dibuja un número</h2>
+
+            <p>
+                Dibuja un solo dígito del 0 al 9 usando el mouse, una tablet o una pantalla táctil.
+            </p>
+
+            <div class="canvas-container">
+                <canvas id="canvas" width="320" height="320"></canvas>
+            </div>
+
+            <div class="buttons">
+                <button class="btn-primary" onclick="predecir()">
+                    Predecir
+                </button>
+
+                <button class="btn-secondary" onclick="limpiarCanvas()">
+                    Limpiar
+                </button>
+            </div>
+
+            <p class="nota">
+                Recomendación: dibuja el número grande y centrado para que el modelo lo pueda reconocer mejor.
+            </p>
+        </section>
+
+        <section class="card">
+            <h2>Resultado</h2>
+
+            <div class="resultado-principal">
+                <div id="numeroPredicho" class="numero-predicho">-</div>
+                <div id="mensaje" class="mensaje">
+                    Esperando dibujo...
+                </div>
+            </div>
+
+            <h3>Probabilidades</h3>
+
+            <div id="probabilidades"></div>
+        </section>
+    </main>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        let dibujando = false;
+        let huboDibujo = false;
+        let temporizadorPrediccion = null;
+
+        function prepararCanvas() {
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.lineWidth = 22;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.strokeStyle = "black";
+        }
+
+        prepararCanvas();
+
+        function obtenerPosicion(evento) {
+            const rect = canvas.getBoundingClientRect();
+
+            let clienteX;
+            let clienteY;
+
+            if (evento.touches && evento.touches.length > 0) {
+                clienteX = evento.touches[0].clientX;
+                clienteY = evento.touches[0].clientY;
+            } else {
+                clienteX = evento.clientX;
+                clienteY = evento.clientY;
+            }
+
+            return {
+                x: (clienteX - rect.left) * (canvas.width / rect.width),
+                y: (clienteY - rect.top) * (canvas.height / rect.height)
+            };
+        }
+
+        function iniciarDibujo(evento) {
+            evento.preventDefault();
+
+            dibujando = true;
+            huboDibujo = true;
+
+            const pos = obtenerPosicion(evento);
+
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+        }
+
+        function dibujar(evento) {
+            if (!dibujando) {
+                return;
+            }
+
+            evento.preventDefault();
+
+            const pos = obtenerPosicion(evento);
+
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+
+            programarPrediccionAutomatica();
+        }
+
+        function terminarDibujo(evento) {
+            if (!dibujando) {
+                return;
+            }
+
+            evento.preventDefault();
+
+            dibujando = false;
+            ctx.closePath();
+
+            programarPrediccionAutomatica();
+        }
+
+        canvas.addEventListener("mousedown", iniciarDibujo);
+        canvas.addEventListener("mousemove", dibujar);
+        canvas.addEventListener("mouseup", terminarDibujo);
+        canvas.addEventListener("mouseleave", terminarDibujo);
+
+        canvas.addEventListener("touchstart", iniciarDibujo);
+        canvas.addEventListener("touchmove", dibujar);
+        canvas.addEventListener("touchend", terminarDibujo);
+
+        function limpiarCanvas() {
+            prepararCanvas();
+
+            huboDibujo = false;
+
+            document.getElementById("numeroPredicho").textContent = "-";
+            document.getElementById("mensaje").textContent = "Esperando dibujo...";
+            document.getElementById("mensaje").classList.remove("error");
+            document.getElementById("probabilidades").innerHTML = "";
+        }
+
+        function programarPrediccionAutomatica() {
+            clearTimeout(temporizadorPrediccion);
+
+            temporizadorPrediccion = setTimeout(() => {
+                if (huboDibujo) {
+                    predecir();
+                }
+            }, 700);
+        }
+
+        async function predecir() {
+            const mensaje = document.getElementById("mensaje");
+
+            if (!huboDibujo) {
+                mensaje.textContent = "Primero dibuja un número.";
+                mensaje.classList.add("error");
+                return;
+            }
+
+            mensaje.textContent = "Procesando...";
+            mensaje.classList.remove("error");
+
+            const imagen = canvas.toDataURL("image/png");
+
+            try {
+                const respuesta = await fetch("/predecir", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        imagen: imagen
+                    })
+                });
+
+                const datos = await respuesta.json();
+
+                if (!respuesta.ok) {
+                    throw new Error(datos.error || "Error al predecir.");
+                }
+
+                document.getElementById("numeroPredicho").textContent = datos.prediccion;
+                mensaje.textContent = "Predicción realizada correctamente.";
+
+                mostrarProbabilidades(datos.probabilidades);
+
+            } catch (error) {
+                mensaje.textContent = error.message;
+                mensaje.classList.add("error");
+            }
+        }
+
+        function mostrarProbabilidades(probabilidades) {
+            const contenedor = document.getElementById("probabilidades");
+            contenedor.innerHTML = "";
+
+            probabilidades.forEach(item => {
+                const fila = document.createElement("div");
+                fila.className = "probabilidad-item";
+
+                const etiqueta = document.createElement("div");
+                etiqueta.className = "probabilidad-label";
+
+                const digito = document.createElement("span");
+                digito.textContent = "Dígito " + item.digito;
+
+                const porcentaje = document.createElement("span");
+                porcentaje.textContent = item.porcentaje.toFixed(2) + "%";
+
+                etiqueta.appendChild(digito);
+                etiqueta.appendChild(porcentaje);
+
+                const barraFondo = document.createElement("div");
+                barraFondo.className = "barra-fondo";
+
+                const barra = document.createElement("div");
+                barra.className = "barra";
+                barra.style.width = item.porcentaje + "%";
+
+                barraFondo.appendChild(barra);
+
+                fila.appendChild(etiqueta);
+                fila.appendChild(barraFondo);
+
+                contenedor.appendChild(fila);
+            });
+        }
+    </script>
+</body>
+</html>
